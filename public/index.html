@@ -3,71 +3,75 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Excel アップロード</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <title>Excel フォルダ処理アプリ</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
-        .dragover {
-            border-color: #3b82f6;
-            background-color: #e0f2fe;
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f8f9fa;
+        }
+        .upload-zone {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
         }
     </style>
 </head>
-<body class="bg-gray-100 font-sans">
-    <div class="max-w-4xl mx-auto p-6 bg-white shadow-lg rounded-lg mt-10">
-        <h1 class="text-2xl font-bold text-gray-700 mb-4">Excel ファイル処理アプリ</h1>
-        <p class="text-gray-600 mb-6">Excelファイルを以下のエリアにドラッグ＆ドロップ、またはファイルを選択してください。</p>
+<body>
+    <h1>Excel フォルダ処理アプリ</h1>
+    <p>Excelファイルを含むフォルダを以下のエリアにドラッグ＆ドロップ、またはフォルダを選択してください。</p>
 
-        <div id="uploadZone" class="upload-zone border-2 border-dashed border-gray-300 p-8 rounded-lg text-center mb-6 transition hover:bg-gray-50">
-            <p class="text-gray-500">ここにファイルをドラッグ＆ドロップするか、以下のボタンでファイルを選択してください。</p>
-            <input type="file" id="fileInput" accept=".xlsx" class="mt-4 text-center mx-auto block">
-        </div>
+    <div id="uploadZone" class="upload-zone">
+        <p>ここにフォルダをドラッグ＆ドロップするか、以下のボタンでフォルダを選択してください。</p>
+        <input type="file" id="folderInput" webkitdirectory>
+    </div>
 
-        <button id="processButton" class="bg-blue-500 text-white py-2 px-6 rounded-md shadow hover:bg-blue-600 transition">
-            アップロードして処理
-        </button>
+    <button id="processButton">アップロードして処理</button>
 
-        <div id="output" class="mt-8">
-            <h3 class="text-xl font-semibold text-gray-700 mb-2">処理結果</h3>
-            <pre id="resultArea" class="p-4 bg-gray-100 rounded-md text-gray-700 overflow-auto"></pre>
-        </div>
+    <div id="output">
+        <h3>処理結果</h3>
+        <div id="resultArea" style="white-space: pre-wrap; background: #f1f1f1; padding: 10px; border-radius: 5px;"></div>
     </div>
 
     <script>
-        const uploadZone = document.getElementById('uploadZone');
-        const fileInput = document.getElementById('fileInput');
+        const folderInput = document.getElementById('folderInput');
         const processButton = document.getElementById('processButton');
         const resultArea = document.getElementById('resultArea');
 
-        uploadZone.addEventListener('dragover', (event) => {
-            event.preventDefault();
-            uploadZone.classList.add('dragover');
-        });
+        let files = [];
 
-        uploadZone.addEventListener('dragleave', () => {
-            uploadZone.classList.remove('dragover');
-        });
-
-        uploadZone.addEventListener('drop', (event) => {
-            event.preventDefault();
-            uploadZone.classList.remove('dragover');
-            const files = event.dataTransfer.files;
-            if (files.length > 0) {
-                fileInput.files = files;
-            }
+        // フォルダ選択時の処理
+        folderInput.addEventListener('change', (event) => {
+            files = Array.from(event.target.files); // 選択されたすべてのファイル
+            alert(`${files.length} 個のファイルが選択されました。`);
         });
 
         processButton.addEventListener('click', async () => {
-            const file = fileInput.files[0];
-            if (!file) {
-                alert('ファイルを選択してください。');
+            if (files.length === 0) {
+                alert('フォルダを選択してください。');
                 return;
             }
 
             const formData = new FormData();
-            formData.append('file', file);
+            files.forEach((file) => {
+                formData.append('files[]', file); // ファイルをすべて送信
+            });
 
             try {
-                const response = await fetch('https://your-worker-subdomain.workers.dev/upload', {
+                const response = await fetch('https://royal-wind-a61d.sawayamasawayama.workers.dev/upload-folder', {
                     method: 'POST',
                     body: formData,
                 });
@@ -79,12 +83,62 @@
                 }
 
                 const result = await response.json();
-                resultArea.textContent = JSON.stringify(result.result, null, 2);
+                console.log('サーバーからのレスポンス:', result);
+
+                // 結果をエクセルファイルとして保存
+                downloadExcel(result.results);
             } catch (err) {
                 alert('サーバーエラーが発生しました。');
                 console.error(err);
             }
         });
+
+        // エクセルファイルをダウンロード（すべての内容を1つのシートにまとめる）
+        function downloadExcel(results) {
+            const combinedData = []; // すべてのデータを1つにまとめる配列
+
+            results.forEach((result) => {
+                if (!result.parsedData) {
+                    console.error(`エラー: ファイル ${result.fileName} に parsedData が存在しません。結果:`, result);
+                    return; // 次のファイルに進む
+                }
+
+                // デバッグ用: parsedData をそのまま確認
+                console.log(`ファイル: ${result.fileName}, parsedData:`, result.parsedData);
+
+                // 各ファイルのデータにファイル名を追加して結合
+                const fileData = result.parsedData
+                    .map((data) => ({
+                        ファイル名: result.fileName, // ファイル名を列として追加
+                        インデックス: data.index,
+                        チラシ期間: data.チラシ期間,
+                        タイトル: data.タイトル,
+                        実施店舗: data.実施店舗,
+                        ...data.データ, // その他のデータを展開
+                    }));
+
+                combinedData.push(...fileData); // すべてのデータを1つの配列にまとめる
+            });
+
+            try {
+                const ws = XLSX.utils.json_to_sheet(combinedData); // シートを作成
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'まとめたデータ'); // シート名を設定
+
+                // エクセルファイルを生成してダウンロード
+                XLSX.writeFile(wb, 'combined_result.xlsx');
+            } catch (err) {
+                console.error('エクセルファイルの生成中にエラーが発生しました:', err);
+                alert('エクセルファイルの生成中にエラーが発生しました。詳細はコンソールを確認してください。');
+            }
+        }
+
+        // シート名を安全な形式に変換する関数
+        function sanitizeSheetName(sheetName) {
+            const sanitized = sheetName.replace(/[:\\\/\?\*\[\]]/g, '_'); // 禁止文字をアンダースコアに置換
+            const trimmed = sanitized.substring(0, 31); // 31文字以内に制限
+            return trimmed || 'Sheet1'; // 空の場合デフォルト名を使用
+        }
     </script>
 </body>
 </html>
