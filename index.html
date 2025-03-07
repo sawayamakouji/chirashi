@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel フォルダ処理アプリ</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f8f9fa;
+        }
+        .upload-zone {
+            border: 2px dashed #ccc;
+            padding: 20px;
+            text-align: center;
+            margin: 20px 0;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>Excel フォルダ処理アプリ</h1>
+    <p>Excelファイルを含むフォルダを以下のエリアにドラッグ＆ドロップ、またはフォルダを選択してください。</p>
+
+    <div id="uploadZone" class="upload-zone">
+        <p>ここにフォルダをドラッグ＆ドロップするか、以下のボタンでフォルダを選択してください。</p>
+        <input type="file" id="folderInput" webkitdirectory>
+    </div>
+
+    <button id="processButton">アップロードして処理</button>
+
+    <div id="output">
+        <h3>処理結果</h3>
+        <div id="resultArea" style="white-space: pre-wrap; background: #f1f1f1; padding: 10px; border-radius: 5px;"></div>
+    </div>
+
+    <script>
+        const folderInput = document.getElementById('folderInput');
+        const processButton = document.getElementById('processButton');
+        const resultArea = document.getElementById('resultArea');
+
+        let files = [];
+
+        // フォルダ選択時の処理
+        folderInput.addEventListener('change', (event) => {
+            files = Array.from(event.target.files); // 選択されたすべてのファイル
+            alert(`${files.length} 個のファイルが選択されました。`);
+        });
+
+        processButton.addEventListener('click', async () => {
+            if (files.length === 0) {
+                alert('フォルダを選択してください。');
+                return;
+            }
+
+            const formData = new FormData();
+            files.forEach((file) => {
+                formData.append('files[]', file); // ファイルをすべて送信
+            });
+
+            try {
+                const response = await fetch('https://royal-wind-a61d.sawayamasawayama.workers.dev/upload-folder', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    alert(`エラー: ${error.error}`);
+                    return;
+                }
+
+                const result = await response.json();
+                console.log('サーバーからのレスポンス:', result);
+
+                // 結果をエクセルファイルとして保存
+                downloadExcel(result.results);
+            } catch (err) {
+                alert('サーバーエラーが発生しました。');
+                console.error(err);
+            }
+        });
+
+        // エクセルファイルをダウンロード（すべての内容を1つのシートにまとめる）
+        function downloadExcel(results) {
+            const combinedData = []; // すべてのデータを1つにまとめる配列
+
+            results.forEach((result) => {
+                if (!result.parsedData) {
+                    console.error(`エラー: ファイル ${result.fileName} に parsedData が存在しません。結果:`, result);
+                    return; // 次のファイルに進む
+                }
+
+                // デバッグ用: parsedData をそのまま確認
+                console.log(`ファイル: ${result.fileName}, parsedData:`, result.parsedData);
+
+                // 各ファイルのデータにファイル名を追加して結合
+                const fileData = result.parsedData
+                    .map((data) => ({
+                        ファイル名: result.fileName, // ファイル名を列として追加
+                        インデックス: data.index,
+                        チラシ期間: data.チラシ期間,
+                        タイトル: data.タイトル,
+                        実施店舗: data.実施店舗,
+                        ...data.データ, // その他のデータを展開
+                    }));
+
+                combinedData.push(...fileData); // すべてのデータを1つの配列にまとめる
+            });
+
+            try {
+                const ws = XLSX.utils.json_to_sheet(combinedData); // シートを作成
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, 'まとめたデータ'); // シート名を設定
+
+                // エクセルファイルを生成してダウンロード
+                XLSX.writeFile(wb, 'combined_result.xlsx');
+            } catch (err) {
+                console.error('エクセルファイルの生成中にエラーが発生しました:', err);
+                alert('エクセルファイルの生成中にエラーが発生しました。詳細はコンソールを確認してください。');
+            }
+        }
+
+        // シート名を安全な形式に変換する関数
+        function sanitizeSheetName(sheetName) {
+            const sanitized = sheetName.replace(/[:\\\/\?\*\[\]]/g, '_'); // 禁止文字をアンダースコアに置換
+            const trimmed = sanitized.substring(0, 31); // 31文字以内に制限
+            return trimmed || 'Sheet1'; // 空の場合デフォルト名を使用
+        }
+    </script>
+</body>
+</html>
